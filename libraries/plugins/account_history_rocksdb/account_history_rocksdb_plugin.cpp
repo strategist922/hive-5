@@ -91,6 +91,25 @@ using ::rocksdb::ColumnFamilyOptions;
 using ::rocksdb::ColumnFamilyHandle;
 using ::rocksdb::WriteBatch;
 
+class on_destroy_timer
+{
+  std::string _name;
+  uint64_t _time;
+
+public:
+
+  on_destroy_timer(const std::string& name = "not specified") : _name{name}, _time{now()} {}
+  ~on_destroy_timer() { std::cout << "[AH TIME LOG] Duration of: `" << _name << "`, took: " << (now() - _time) << std::endl; }
+
+private:
+
+  uint64_t now()
+  {
+    return std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::system_clock::now().time_since_epoch() ).count();
+  }
+
+};
+
 /** Represents an AH entry in mapped to account name.
   *  Holds additional informations, which are needed to simplify pruning process.
   *  All operations specific to given account, are next mapped to ID of given object.
@@ -571,6 +590,7 @@ public:
 
   void openDb()
   {
+    on_destroy_timer _{ "opening db" };
     createDbSchema(_storagePath);
 
     auto columnDefs = prepareColumnDefinitions(true);
@@ -681,6 +701,7 @@ private:
   template< typename T >
   void importOperation( rocksdb_operation_object& obj, const T& impacted )
   {
+    on_destroy_timer _{"import operation"};
     if(_lastTx != obj.trx_id)
     {
       ++_txNo;
@@ -795,6 +816,7 @@ private:
 
   void flushWriteBuffer(DB* storage = nullptr)
   {
+    on_destroy_timer _{"flush write buffer"};
     storeSequenceIds();
 
     if(storage == nullptr)
@@ -809,6 +831,7 @@ private:
 
   void flushStorage()
   {
+    on_destroy_timer _{"flush storage"};
     if(_storage == nullptr)
       return;
 
@@ -1047,6 +1070,7 @@ std::vector<account_name_type> account_history_rocksdb_plugin::impl::getImpacted
 
 inline bool account_history_rocksdb_plugin::impl::isTrackedOperation(const operation& op) const
 {
+  on_destroy_timer _{"isTrackedOperation"};
   if(_op_list.empty() && _blacklisted_op_list.empty())
     return true;
 
@@ -1062,6 +1086,7 @@ inline bool account_history_rocksdb_plugin::impl::isTrackedOperation(const opera
 void account_history_rocksdb_plugin::impl::storeOpFilteringParameters(const std::vector<std::string>& opList,
   flat_set<std::string>* storage) const
   {
+    on_destroy_timer _{"storeOpFilteringParameters"};
     for(const auto& arg : opList)
     {
       std::vector<std::string> ops;
@@ -1155,6 +1180,7 @@ account_history_rocksdb_plugin::impl::collectReversibleOps(uint32_t* blockRangeB
 void account_history_rocksdb_plugin::impl::find_account_history_data(const account_name_type& name, uint64_t start,
   uint32_t limit, bool include_reversible, std::function<bool(unsigned int, const rocksdb_operation_object&)> processor) const
 {
+  on_destroy_timer _{"find_account_history_data"};
   if(limit == 0)
     return;
 
@@ -1218,6 +1244,7 @@ void account_history_rocksdb_plugin::impl::find_account_history_data(const accou
 
 bool account_history_rocksdb_plugin::impl::find_operation_object(size_t opId, rocksdb_operation_object* op) const
 {
+  on_destroy_timer _{"find_operation_object"};
   std::string data;
   id_slice_t idSlice(opId);
   ::rocksdb::Status s = _storage->Get(ReadOptions(), _columnHandles[OPERATION_BY_ID], idSlice, &data);
@@ -1236,6 +1263,7 @@ bool account_history_rocksdb_plugin::impl::find_operation_object(size_t opId, ro
 void account_history_rocksdb_plugin::impl::find_operations_by_block(size_t blockNum, bool include_reversible,
   std::function<void(const rocksdb_operation_object&)> processor) const
 {
+  on_destroy_timer _{"find_operations_by_block"};
   if(include_reversible)
   {
     uint32_t collectedIrreversibleBlock = 0;
@@ -1273,6 +1301,7 @@ std::pair< uint32_t, uint64_t > account_history_rocksdb_plugin::impl::enumVirtua
   fc::optional<uint64_t> resumeFromOperation, fc::optional<uint32_t> limit, 
   std::function<bool(const rocksdb_operation_object&, uint64_t, bool)> processor) const
 {
+  on_destroy_timer _{"enumVirtualOperationsFromBlockRange"};
   FC_ASSERT(blockRangeEnd > blockRangeBegin, "Block range must be upward");
 
   uint64_t lastProcessedOperationId = 0;
@@ -1429,6 +1458,7 @@ std::pair< uint32_t, uint64_t > account_history_rocksdb_plugin::impl::enumVirtua
 bool account_history_rocksdb_plugin::impl::find_transaction_info(const protocol::transaction_id_type& trxId,
   bool include_reversible, uint32_t* blockNo, uint32_t* txInBlock) const
   {
+  on_destroy_timer _{"find_transaction_info"};
   ReadOptions rOptions;
   TransactionIdSlice idSlice(trxId);
   std::string dataBuffer;
@@ -1529,6 +1559,7 @@ void account_history_rocksdb_plugin::impl::load_additional_data_from_snapshot(co
 
 uint32_t account_history_rocksdb_plugin::impl::get_lib(const uint32_t* fallbackIrreversibleBlock /*= nullptr*/) const
 {
+  on_destroy_timer _{"get_lib"};
   std::string data;
   auto s = _storage->Get(ReadOptions(), _columnHandles[CURRENT_LIB], LIB_ID, &data );
 
@@ -1547,8 +1578,8 @@ uint32_t account_history_rocksdb_plugin::impl::get_lib(const uint32_t* fallbackI
 
 void account_history_rocksdb_plugin::impl::update_lib( uint32_t lib )
 {
+  on_destroy_timer _{"update_lib"};
   _cached_irreversible_block.store(lib);
-  auto s = _writeBuffer.Put( _columnHandles[ CURRENT_LIB ], LIB_ID, lib_slice_t( lib ) );
   checkStatus( s );
 }
 
@@ -1639,6 +1670,8 @@ bool account_history_rocksdb_plugin::impl::createDbSchema(const bfs::path& path)
 
 void account_history_rocksdb_plugin::impl::buildAccountHistoryRecord( const account_name_type& name, const rocksdb_operation_object& obj )
 {
+  on_destroy_timer _{"buildAccountHistoryRecord"};
+
   std::string strName = name;
 
   ReadOptions rOptions;
@@ -1685,6 +1718,7 @@ void account_history_rocksdb_plugin::impl::buildAccountHistoryRecord( const acco
 
 void account_history_rocksdb_plugin::impl::storeTransactionInfo(const chain::transaction_id_type& trx_id, uint32_t blockNo, uint32_t trx_in_block)
   {
+    on_destroy_timer _{"storeTransactionInfo"};
   TransactionIdSlice txSlice(trx_id);
   block_no_tx_in_block_pair block_no_tx_no(blockNo, trx_in_block);
   block_no_tx_in_block_slice_t valueSlice(block_no_tx_no);
@@ -1696,6 +1730,7 @@ void account_history_rocksdb_plugin::impl::storeTransactionInfo(const chain::tra
 void account_history_rocksdb_plugin::impl::prunePotentiallyTooOldItems(account_history_info* ahInfo, const account_name_type& name,
   const fc::time_point_sec& now)
 {
+  on_destroy_timer _{"prunePotentiallyTooOldItems"};
   std::string strName = name;
 
   auto ageLimit =  fc::days(ACCOUNT_HISTORY_TIME_LIMIT);
@@ -1819,6 +1854,7 @@ void account_history_rocksdb_plugin::impl::printReport(uint32_t blockNo, const c
 
 void account_history_rocksdb_plugin::impl::importData(unsigned int blockLimit)
 {
+  on_destroy_timer _{"importData"};
   if(_storage == nullptr)
   {
     ilog("RocksDB has no opened storage. Skipping data import...");
@@ -1960,6 +1996,7 @@ void account_history_rocksdb_plugin::impl::on_post_apply_operation(const operati
 
 void account_history_rocksdb_plugin::impl::on_irreversible_block( uint32_t block_num )
 {
+  on_destroy_timer _{"on_irreversible_block"};
   if( _reindexing ) return;
 
   uint32_t fallbackIrreversibleBlock = 0;
