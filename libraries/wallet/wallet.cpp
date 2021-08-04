@@ -666,8 +666,8 @@ public:
       approving_account_lut[ approving_acct.name ] =  approving_acct;
 
     /// recursively check one layer deeper in the authority tree for keys
-    std::function< void(flat_set< account_name_type > &, std::string, uint32_t) > recursively_get_authorities =
-      [&](flat_set< account_name_type > &authorities_names, std::string type, uint32_t depth)
+    std::function< void(flat_set< account_name_type > &, authority_type, uint32_t) > recursively_get_authorities =
+      [&](flat_set< account_name_type > &authorities_names, authority_type type, uint32_t depth)
       {
         if(depth > HIVE_MAX_SIG_CHECK_DEPTH)
           return;
@@ -680,9 +680,9 @@ public:
             continue;
           const database_api::api_account_object& acct = it->second;
           flat_map< account_name_type, weight_type > account_auths;
-          if( type == "active" )
+          if( type == active )
             account_auths = acct.active.account_auths;
-          else if( type == "owner" )
+          else if( type == owner )
             account_auths = acct.owner.account_auths;
           else
             account_auths = acct.posting.account_auths;
@@ -705,9 +705,9 @@ public:
 
     if( _use_automatic_authority == true )
     {
-      recursively_get_authorities(req_active_approvals, "active", 1);
-      recursively_get_authorities(req_owner_approvals, "owner", 1);
-      recursively_get_authorities(req_posting_approvals, "posting", 1);
+      recursively_get_authorities(req_active_approvals, active, 1);
+      recursively_get_authorities(req_owner_approvals, owner, 1);
+      recursively_get_authorities(req_posting_approvals, posting, 1);
     }
 
     auto get_account_from_lut = [&]( const std::string& name ) -> fc::optional< const database_api::api_account_object* >
