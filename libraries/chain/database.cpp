@@ -4605,9 +4605,30 @@ void database::_apply_transaction(const signed_transaction& trx)
 
 } FC_CAPTURE_AND_RETHROW( (trx) ) }
 
+
+struct applied_operation_info_controller
+{
+  applied_operation_info_controller(const struct operation_notification** storage, const operation_notification& note) :
+    _storage(storage)
+    {
+    *_storage = &note;
+    }
+
+  ~applied_operation_info_controller()
+  {
+    *_storage = nullptr;
+  }
+
+private:
+  const struct operation_notification** _storage = nullptr;
+};
+
 void database::apply_operation(const operation& op)
 {
   operation_notification note = create_operation_notification( op );
+
+  applied_operation_info_controller ctrlr(&_current_applied_operation_info, note);
+
   notify_pre_apply_operation( note );
 
   if( _benchmark_dumper.is_enabled() )
@@ -5514,13 +5535,27 @@ void database::adjust_smt_balance( const account_object& owner, const asset& del
 
 void database::modify_balance( const account_object& a, const asset& delta, bool check_balance )
 {
+  const bool trace_balance_change = false; //a.name == "X";
+  std::string op_context;
+
+  if(trace_balance_change)
+  {
+    if(_current_applied_operation_info != nullptr)
+      op_context = fc::json::to_string(_current_applied_operation_info->op);
+    else
+      op_context = "No operation context";
+  }
+
   modify( a, [&]( account_object& acnt )
   {
     switch( delta.symbol.asset_num )
     {
       case HIVE_ASSET_NUM_HIVE:
       {
+        auto b = acnt.balance;
         acnt.balance += delta;
+        if(trace_balance_change)
+          ilog("${a} HIVE balance changed to ${nb} (previous: ${b} ) at block: ${block}. Operation context: ${c}", ("a", a.name)("b", b.amount)("nb", acnt.balance.amount)("block", _current_block_num)("c", op_context));
 
         if( check_balance )
         {
@@ -5529,6 +5564,7 @@ void database::modify_balance( const account_object& a, const asset& delta, bool
         break;
       }
       case HIVE_ASSET_NUM_HBD:
+      {
         /// Starting from HF 25 HBD interest will be paid only from saving balance.
         if( has_hardfork(HIVE_HARDFORK_1_25) == false && a.hbd_seconds_last_update != head_block_time() )
         {
@@ -5555,12 +5591,19 @@ void database::modify_balance( const account_object& a, const asset& delta, bool
             } );
           }
         }
+        
+        auto b = acnt.hbd_balance;
         acnt.hbd_balance += delta;
+
+        if(trace_balance_change)
+          ilog("${a} HBD balance changed to ${nb} (previous: ${b} ) at block: ${block}. Operation context: ${c}", ("a", a.name)("b", b.amount)("nb", acnt.hbd_balance.amount)("block", _current_block_num)("c", op_context));
+
         if( check_balance )
         {
           FC_ASSERT( acnt.get_hbd_balance().amount.value >= 0, "Insufficient HBD funds" );
         }
         break;
+      }
       case HIVE_ASSET_NUM_VESTS:
         acnt.vesting_shares += delta;
         if( check_balance )
