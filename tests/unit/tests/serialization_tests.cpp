@@ -495,6 +495,133 @@ BOOST_AUTO_TEST_CASE( version_test )
   FC_LOG_AND_RETHROW();
 }
 
+namespace
+{
+  template< typename... Ts >
+  void test_static_variant_same( const fc::static_variant< Ts... >& sv1, const fc::static_variant< Ts... >& sv2 )
+  {
+    // Check static_variant index (do not waste time on hashing if variants are already holding different data)
+    BOOST_REQUIRE( sv1.which() == sv2.which() );
+
+    // Check if comment_options_extension hashes match
+    BOOST_REQUIRE( fc::sha256::hash( sv1 ) == fc::sha256::hash( sv2 ) );
+  }
+
+  template< typename T >
+  T serialize_with_legacy( const std::string& data, bool legacy_enabled )
+  {
+    try
+    {
+      legacy_switcher switcher( legacy_enabled );
+      T result = fc::json::from_string( data ).as < T >();
+      return result;
+    } FC_LOG_AND_RETHROW();
+  }
+}
+
+BOOST_AUTO_TEST_CASE( comment_options_extension_test )
+{
+  try
+  {
+    comment_options_extension coe_legacy, coe_new;
+
+    BOOST_CHECK_NO_THROW(
+      coe_legacy = serialize_with_legacy< comment_options_extension >(
+        "[0,{\"beneficiaries\":[{\"account\":\"alice\",\"weight\":10000}]}]", // condenser_api output
+        true
+      );
+    );
+
+    BOOST_CHECK_NO_THROW(
+      coe_new = serialize_with_legacy< comment_options_extension >(
+        "{\"type\":\"comment_payout_beneficiaries\",\"value\":{\"beneficiaries\":[{\"account\":\"alice\",\"weight\":10000}]}}", // block_api output
+        false
+      );
+    );
+
+    test_static_variant_same( coe_legacy, coe_new );
+  }
+  FC_LOG_AND_RETHROW();
+}
+
+BOOST_AUTO_TEST_CASE( pow2_work_test )
+{
+  try
+  {
+    pow2_work work_legacy, work_new;
+
+    BOOST_CHECK_NO_THROW(
+      work_legacy = serialize_with_legacy< pow2_work >(
+        "[0,{\"input\":{\"worker_account\":\"alice\",\"prev_block\":\"abcdef\",\"nonce\":1050},\"pow_summary\":0}]", // condenser_api output
+        true
+      );
+    );
+
+    BOOST_CHECK_NO_THROW(
+      work_new = serialize_with_legacy< pow2_work >(
+        "{\"type\":\"pow2\",\"value\":{\"input\":{\"worker_account\":\"alice\",\"prev_block\":\"abcdef\",\"nonce\":1050},\"pow_summary\":0}}", // block_api output
+        false
+      );
+    );
+
+    test_static_variant_same( work_legacy, work_new );
+  }
+  FC_LOG_AND_RETHROW();
+}
+
+BOOST_AUTO_TEST_CASE( legacy_operation_test )
+{
+  try
+  {
+    using hive::plugins::condenser_api::legacy_operation;
+    using hive::plugins::condenser_api::legacy_transfer_operation;
+
+    transfer_operation op_new, op_legacy;
+
+    BOOST_CHECK_NO_THROW(
+      op_legacy = serialize_with_legacy< legacy_operation >(
+        "[\"transfer\",{\"from\":\"alice\",\"to\":\"bob\",\"amount\":\"1.234 TESTS\",\"memo\":\"test\"}]", // condenser_api output
+        true
+      ).get< legacy_transfer_operation >();
+    );
+
+    BOOST_CHECK_NO_THROW(
+      op_new = serialize_with_legacy< operation >(
+        "{\"type\":\"transfer_operation\",\"value\":{\"from\":\"alice\",\"to\":\"bob\",\"amount\":{\"amount\":\"1234\",\"precision\":3,\"nai\":\"@@000000021\"},\"memo\":\"test\"}}", // block_api output
+        false
+      ).get< transfer_operation >();
+    );
+
+    BOOST_REQUIRE( fc::sha256::hash( op_new ) == fc::sha256::hash( op_legacy ) );
+  }
+  FC_LOG_AND_RETHROW();
+}
+
+BOOST_AUTO_TEST_CASE( block_header_test )
+{
+  try
+  {
+    block_header_extensions ex_legacy, ex_new;
+
+    BOOST_CHECK_NO_THROW(
+      ex_legacy = serialize_with_legacy< block_header_extensions >(
+        "[\"version\",\"1.2.3\"]", // condenser_api output
+        true
+      );
+    );
+
+    BOOST_CHECK_NO_THROW(
+      ex_new = serialize_with_legacy< block_header_extensions >(
+        "{\"type\":\"version\",\"value\":\"1.2.3\"}", // block_api output
+        false
+      );
+    );
+
+    test_static_variant_same( ex_legacy, ex_new );
+  }
+  FC_LOG_AND_RETHROW();
+}
+
 BOOST_AUTO_TEST_CASE( hardfork_version_test )
 {
   try
@@ -568,6 +695,11 @@ BOOST_AUTO_TEST_CASE( legacy_signed_transaction )
   signed_transaction tx2 = signed_transaction( fc::json::from_string( "{\"ref_block_num\":4000,\"ref_block_prefix\":4000000000,\"expiration\":\"2018-01-01T00:00:00\",\"operations\":[[\"vote\",{\"voter\":\"alice\",\"author\":\"bob\",\"permlink\":\"foobar\",\"weight\":10000}]],\"extensions\":[],\"signatures\":[\"\"]}" ).as< legacy_signed_transaction >() );
 
   BOOST_REQUIRE( tx.id() == tx2.id() );
+
+  BOOST_CHECK_NO_THROW(
+   fc::json::from_string( "{\"ref_block_num\": 41047, \"ref_block_prefix\": 4089157749, \"expiration\": \"2018-03-28T19:05:47\", \"operations\": [[\"witness_update\", {\"owner\": \"test\", \"url\": \"foo\", \"block_signing_key\": \"TST1111111111111111111111111111111114T1Anm\", \"props\": {\"account_creation_fee\": \"0.500 TESTS\", \"maximum_block_size\": 65536, \"hbd_interest_rate\": 0}, \"fee\": \"0.000 TESTS\"}]], \"extensions\": [], \"signatures\": [\"1f1b2d47427a46513777ae9ed032b761b504423b18350e673beb991a1b52d2381c26c36368f9cc4a72c9de3cc16bca83b269c2ea1960e28647caf151e17c35bf3f\"]}" )
+     .as< legacy_signed_transaction >()
+  );
 }
 
 BOOST_AUTO_TEST_CASE( static_variant_json_test )
@@ -613,17 +745,6 @@ BOOST_AUTO_TEST_CASE( static_variant_json_test )
     HIVE_REQUIRE_THROW( from_variant( fc::json::from_string( json_str ), op ), fc::assert_exception );
   }
   FC_LOG_AND_RETHROW();
-}
-
-BOOST_AUTO_TEST_CASE( legacy_operation_test )
-{
-  try
-  {
-    auto v = fc::json::from_string( "{\"ref_block_num\": 41047, \"ref_block_prefix\": 4089157749, \"expiration\": \"2018-03-28T19:05:47\", \"operations\": [[\"witness_update\", {\"owner\": \"test\", \"url\": \"foo\", \"block_signing_key\": \"TST1111111111111111111111111111111114T1Anm\", \"props\": {\"account_creation_fee\": \"0.500 TESTS\", \"maximum_block_size\": 65536, \"hbd_interest_rate\": 0}, \"fee\": \"0.000 TESTS\"}]], \"extensions\": [], \"signatures\": [\"1f1b2d47427a46513777ae9ed032b761b504423b18350e673beb991a1b52d2381c26c36368f9cc4a72c9de3cc16bca83b269c2ea1960e28647caf151e17c35bf3f\"]}" );
-    auto ls = v.as< hive::plugins::condenser_api::legacy_signed_transaction >();
-    // not throwing an error here is success
-  }
-  FC_LOG_AND_RETHROW()
 }
 
 BOOST_AUTO_TEST_CASE( asset_symbol_type_test )
