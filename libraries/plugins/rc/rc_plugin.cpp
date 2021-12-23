@@ -798,6 +798,11 @@ struct pre_apply_operation_visitor
     regenerate( op.proposal_owner );
   }
 
+  void operator()( const producer_missed_operation& op )const
+  {
+    regenerate( op.producer );
+  }
+
   template< typename Op >
   void operator()( const Op& op )const {}
 };
@@ -983,6 +988,11 @@ struct post_apply_operation_visitor
   void operator()( const remove_proposal_operation& op )const
   {
     _mod_accounts.emplace_back( op.proposal_owner );
+  }
+
+  void operator()( const producer_missed_operation& op )const
+  {
+    _mod_accounts.emplace_back( op.producer );
   }
 
   template< typename Op >
