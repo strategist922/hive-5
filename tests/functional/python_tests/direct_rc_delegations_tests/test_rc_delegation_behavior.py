@@ -172,7 +172,9 @@ def test_large_rc_delegation(node, wallet: Wallet):
                 accounts.append(f'account-{account_number}')
 
     wallet.api.transfer_to_vesting('initminer', accounts[0], Asset.Test(200000000))
-    rc_to_delegate = int(rc_account_info(accounts[0], 'rc_manabar', wallet)['current_mana']) - 11100
+    rc_to_delegate = int(rc_account_info(accounts[0], 'rc_manabar', wallet)['current_mana'])
+    rc_to_delegate_compensation = rc_to_delegate / 3500000000
+    rc_to_delegate = int(rc_to_delegate-rc_to_delegate_compensation)
     x = node.api.rc.get_resource_pool()
     y = node.api.rc.get_resource_params()
     wallet.api.delegate_rc(accounts[0], [accounts[1]], rc_to_delegate)
